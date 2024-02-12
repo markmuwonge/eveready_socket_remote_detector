@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"syscall"
+	"time"
 	"unsafe"
 
 	custom_error "eveready_socket_remote_detector/error"
@@ -16,6 +17,8 @@ import (
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
 )
+
+var last_valid_eveready_signal int64 = 0
 
 func main() {
 	json_config, err := os.ReadFile("config.json")
@@ -46,6 +49,7 @@ func main() {
 	err = rtlsdr.ResetRtlSdrBuffer(rtl_sdr_dll, rtl_sdr_device)
 	custom_error.Fatal(err)
 
+	last_valid_eveready_signal = time.Now().UnixMilli()
 	ctx := rtlsdr.RtlSdr_Ctx{Samp_Rate: int(rtl_sdr_samp_rate), Rtl_Sdr_Device: rtl_sdr_device, Rtl_Sdr_Dll: rtl_sdr_dll}
 	rtlsdr.ReadRtlAsync(rtl_sdr_dll, rtl_sdr_device, syscall.NewCallbackCDecl(readRtlSdrAsyncCallback), unsafe.Pointer(&ctx), 0, 0)
 
@@ -64,6 +68,9 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 		im_bin := rtlsdr.GetBinaryRtlSdrIQ(im)
 
 		if funk.ContainsInt([]int{re_bin, im_bin}, 1) {
+			if time.Now().UnixMilli()-last_valid_eveready_signal < ((int64(eveready.Eveready_Signal_Microseconds) / 1000) * int64(eveready.Eveready_Remote_Signal_Repeat_Count)) {
+				break
+			}
 			signal_sample_count := dsp.MicrosecondsToNumberOfSamples(eveready.Eveready_Signal_Microseconds, my_ctx.Samp_Rate)
 			if signal_sample_count*2 > int(buf_len)-(i+1) {
 				//not enough samples remaining to construct the signal
@@ -91,18 +98,18 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 			highest_magnitude_frequency := dsp.GetHighestMagnitudeFrequency(fft_arr, float64(my_ctx.Samp_Rate))
 			samples = fft.IFFT(fft_arr)
 			samples = dsp.CenterTimeDomainSamples(samples, highest_magnitude_frequency, float64(my_ctx.Samp_Rate))
-
 			samples, err := dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
 			custom_error.Fatal(err)
 			sample_magnitudes := dsp.GetComplexMagnitudes(samples)
 			magnitude_pulse_start_indexes, magnitude_pulse_end_indexes := dsp.GetMagnitudePulseIndexes(sample_magnitudes)
+
 			isValid := eveready.Demodulate(magnitude_pulse_start_indexes, magnitude_pulse_end_indexes, my_ctx.Samp_Rate)
 
 			if !isValid {
 				i = i + (len(samples) * 2)
 				continue
 			}
-
+			last_valid_eveready_signal = time.Now().UnixMilli()
 			break
 		}
 	}

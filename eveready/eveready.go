@@ -9,6 +9,7 @@ import (
 var Eveready_Signal_Microseconds int = 42000
 var Eveready_Signal_Post_Center_Low_Pass_Freq = 10000
 var Eveready_Signal_Post_Center_Low_Pass_Tap_Count = 51
+var Eveready_Remote_Signal_Repeat_Count = 8
 var eveready_signal_pulse_count = 34
 
 var signals = map[string][]string{
