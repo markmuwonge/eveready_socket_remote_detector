@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"syscall"
 	"time"
@@ -95,27 +94,24 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 				}
 				return ret
 			}()
-			samples = dsputils.ZeroPad(samples, dsputils.NextPowerOf2(len(samples)))
 
-			err := gofft.FFT(samples)
+			original_samples := samples
+			next_power_of_two := dsputils.NextPowerOf2(len(samples))
+			samples_extended := make([]complex128, 0)
+			for _, v := range samples {
+				samples_extended = append(samples_extended, v)
+			}
+			for i := 0; i < next_power_of_two-len(samples); i++ {
+				samples_extended = append(samples_extended, samples[i])
+			}
+
+			err := gofft.FFT(samples_extended)
+			custom_error.Fatal(err)
+			highest_magnitude_frequency := dsp.GetHighestMagnitudeFrequency(samples_extended, float64(my_ctx.Samp_Rate))
+			samples = dsp.CenterTimeDomainSamples(original_samples, highest_magnitude_frequency, float64(my_ctx.Samp_Rate))
+			samples, err = dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
 			custom_error.Fatal(err)
 
-			samples = dsp.ZeroOutFFTDCOffset(samples)
-
-			highest_magnitude_frequency := dsp.GetHighestMagnitudeFrequency(samples, float64(my_ctx.Samp_Rate))
-
-			err = gofft.IFFT(samples)
-			custom_error.Fatal(err)
-
-			samples = dsp.CenterTimeDomainSamples(samples, highest_magnitude_frequency, float64(my_ctx.Samp_Rate))
-
-			start := time.Now().UnixMicro()
-			// samples, err = dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
-			// samples, err = dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
-			end := time.Now().UnixMicro()
-			log.Println("LOW PASS:", end-start)
-
-			custom_error.Fatal(err)
 			sample_magnitudes := dsp.GetComplexMagnitudes(samples)
 			magnitude_pulse_start_indexes, magnitude_pulse_end_indexes := dsp.GetMagnitudePulseIndexes(sample_magnitudes)
 
