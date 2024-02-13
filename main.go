@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"syscall"
 	"time"
@@ -13,7 +14,8 @@ import (
 
 	"eveready_socket_remote_detector/eveready"
 
-	"github.com/mjibson/go-dsp/fft"
+	"github.com/argusdusty/gofft"
+	"github.com/mjibson/go-dsp/dsputils"
 	"github.com/thoas/go-funk"
 	"github.com/tidwall/gjson"
 )
@@ -21,6 +23,7 @@ import (
 var last_valid_eveready_signal int64 = 0
 
 func main() {
+
 	json_config, err := os.ReadFile("config.json")
 	custom_error.Fatal(err)
 
@@ -92,13 +95,26 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 				}
 				return ret
 			}()
+			samples = dsputils.ZeroPad(samples, dsputils.NextPowerOf2(len(samples)))
 
-			fft_arr := fft.FFT(samples)
-			fft_arr = dsp.ZeroOutFFTDCOffset(fft_arr)
-			highest_magnitude_frequency := dsp.GetHighestMagnitudeFrequency(fft_arr, float64(my_ctx.Samp_Rate))
-			samples = fft.IFFT(fft_arr)
+			err := gofft.FFT(samples)
+			custom_error.Fatal(err)
+
+			samples = dsp.ZeroOutFFTDCOffset(samples)
+
+			highest_magnitude_frequency := dsp.GetHighestMagnitudeFrequency(samples, float64(my_ctx.Samp_Rate))
+
+			err = gofft.IFFT(samples)
+			custom_error.Fatal(err)
+
 			samples = dsp.CenterTimeDomainSamples(samples, highest_magnitude_frequency, float64(my_ctx.Samp_Rate))
-			samples, err := dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
+
+			start := time.Now().UnixMicro()
+			// samples, err = dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
+			// samples, err = dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
+			end := time.Now().UnixMicro()
+			log.Println("LOW PASS:", end-start)
+
 			custom_error.Fatal(err)
 			sample_magnitudes := dsp.GetComplexMagnitudes(samples)
 			magnitude_pulse_start_indexes, magnitude_pulse_end_indexes := dsp.GetMagnitudePulseIndexes(sample_magnitudes)
