@@ -87,6 +87,7 @@ func GetMagnitudePulseIndexes(magnitudes []float64) ([]int, []int) {
 }
 
 func NumberOfSamplesToMicroseconds(sample_count int, samp_rate int) int {
-	number_of_samples_per_microsecond := float64(samp_rate) / float64(1000000)
-	return int(math.Ceil(number_of_samples_per_microsecond) * float64(sample_count))
+	number_of_samples_per_microsecond := MicrosecondsToNumberOfSamples(1, samp_rate)
+
+	return sample_count / number_of_samples_per_microsecond
 }

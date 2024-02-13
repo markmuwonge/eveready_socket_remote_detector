@@ -121,11 +121,10 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 
 			isValid := eveready.Demodulate(magnitude_pulse_start_indexes, magnitude_pulse_end_indexes, my_ctx.Samp_Rate)
 
-			if !isValid {
-				i = i + (len(samples) * 2)
-				continue
+			if isValid {
+				last_valid_eveready_signal = time.Now().UnixMilli()
 			}
-			last_valid_eveready_signal = time.Now().UnixMilli()
+
 			break
 		}
 	}
