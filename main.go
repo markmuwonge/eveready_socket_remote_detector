@@ -20,9 +20,9 @@ import (
 )
 
 var last_valid_eveready_signal int64 = 0
+var fft_size = 1024
 
 func main() {
-
 	json_config, err := os.ReadFile("config.json")
 	custom_error.Fatal(err)
 
@@ -51,7 +51,7 @@ func main() {
 	err = rtlsdr.ResetRtlSdrBuffer(rtl_sdr_dll, rtl_sdr_device)
 	custom_error.Fatal(err)
 
-	last_valid_eveready_signal = time.Now().UnixMilli()
+	last_valid_eveready_signal = time.Now().UnixMicro()
 	ctx := rtlsdr.RtlSdr_Ctx{Samp_Rate: int(rtl_sdr_samp_rate), Rtl_Sdr_Device: rtl_sdr_device, Rtl_Sdr_Dll: rtl_sdr_dll}
 	rtlsdr.ReadRtlAsync(rtl_sdr_dll, rtl_sdr_device, syscall.NewCallbackCDecl(readRtlSdrAsyncCallback), unsafe.Pointer(&ctx), 0, 0)
 
@@ -70,8 +70,8 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 		im_bin := rtlsdr.GetBinaryRtlSdrIQ(im)
 
 		if funk.ContainsInt([]int{re_bin, im_bin}, 1) {
-			if time.Now().UnixMilli()-last_valid_eveready_signal < ((int64(eveready.Eveready_Signal_Microseconds) / 1000) * int64(eveready.Eveready_Remote_Signal_Repeat_Count)) {
-				break
+			if time.Now().UnixMicro()-last_valid_eveready_signal < int64(eveready.Eveready_Signal_Microseconds)*int64(eveready.Eveready_Remote_Signal_Repeat_Count) {
+				continue
 			}
 			signal_sample_count := dsp.MicrosecondsToNumberOfSamples(eveready.Eveready_Signal_Microseconds, my_ctx.Samp_Rate)
 			if signal_sample_count*2 > int(buf_len)-(i+1) {
@@ -96,6 +96,7 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 			}()
 
 			original_samples := samples
+
 			next_power_of_two := dsputils.NextPowerOf2(len(samples))
 			samples_extended := make([]complex128, 0)
 			for _, v := range samples {
@@ -105,20 +106,21 @@ func readRtlSdrAsyncCallback(buf *uint8, buf_len uint32, ctx unsafe.Pointer) int
 				samples_extended = append(samples_extended, samples[i])
 			}
 
-			err := gofft.FFT(samples_extended)
-			custom_error.Fatal(err)
+			custom_error.Fatal(gofft.FFT(samples_extended))
+
 			highest_magnitude_frequency := dsp.GetHighestMagnitudeFrequency(samples_extended, float64(my_ctx.Samp_Rate))
+
 			samples = dsp.CenterTimeDomainSamples(original_samples, highest_magnitude_frequency, float64(my_ctx.Samp_Rate))
-			samples, err = dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
-			custom_error.Fatal(err)
+
+			// samples, err := dsp.LowPassFilterTimeDomainSamples(samples, float64(eveready.Eveready_Signal_Post_Center_Low_Pass_Freq), my_ctx.Samp_Rate, eveready.Eveready_Signal_Post_Center_Low_Pass_Tap_Count)
+			// custom_error.Fatal(err)
 
 			sample_magnitudes := dsp.GetComplexMagnitudes(samples)
 			magnitude_pulse_start_indexes, magnitude_pulse_end_indexes := dsp.GetMagnitudePulseIndexes(sample_magnitudes)
 
 			isValid := eveready.Demodulate(magnitude_pulse_start_indexes, magnitude_pulse_end_indexes, my_ctx.Samp_Rate)
-
 			if isValid {
-				last_valid_eveready_signal = time.Now().UnixMilli()
+				last_valid_eveready_signal = time.Now().UnixMicro()
 			}
 
 			break

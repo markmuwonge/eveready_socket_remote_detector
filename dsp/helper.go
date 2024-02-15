@@ -3,6 +3,8 @@ package dsp
 import (
 	"math"
 	"slices"
+
+	"github.com/thoas/go-funk"
 )
 
 func MicrosecondsToNumberOfSamples(microseconds int, samp_rate int) int {
@@ -83,6 +85,8 @@ func GetMagnitudePulseIndexes(magnitudes []float64) ([]int, []int) {
 			}
 		}
 	}
+
+	pulse_start_indexes = funk.ChunkInts(pulse_start_indexes, len(pulse_end_indexes))[0]
 	return pulse_start_indexes, pulse_end_indexes
 }
 
